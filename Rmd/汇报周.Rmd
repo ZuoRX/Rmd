@@ -1,0 +1,197 @@
+---
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+#系统工程作业
+##——左任衔170216
+
+* 我的任务是：用lingo之外的方法将DEA计算过程重现
+
+* 我采用的方法是：用**R语言**中的线性规划方法（传统的R语言封装包不能解决个性化的DEA计算）
+
+====================== 文章简介 ======================
+
+Title:Efficiency decomposition in two-stage data envelopment analysis: An application to non-life insurance companies in Taiwan
+
+Author:Chiang Kao; Shiuh-Nan Hwang
+
+Year:2008
+
+Journal: EJOR
+
+本文创新点：传统两阶段DEA 没有考虑到整体效率与两个子阶段的关系，这是本文要解决的问题，也是本文的创新点。
+
+第一步：考虑各子阶段的限制，求整体效率
+
+![Overall Efficiency](c:/users/lenovo/desktop/zuo_homework/overall.png)
+
+第二步：已知整体效率，求第一阶段或第二阶段效率的最大值
+
+![1st Stage Efficiency](c:/users/lenovo/desktop/zuo_homework/e1.png)
+
+第三步：求余下阶段的效率
+
+![2nd Stage Efficiency](c:/users/lenovo/desktop/zuo_homework/e2.png)
+
+==================我用R的计算过程=========================
+
+
+* 需要加载的R包
+```{r}
+#基础包
+library(rJava)
+library(xlsx)  
+library(magrittr)
+#数据包络模型
+library(lpSolveAPI) 
+library(lpSolve)  #线性规划
+library(ucminf)
+library(Benchmarking)
+library(bootstrap)
+library(TFDEA)
+```
+
+
+
+
+
+
+* 1.导入数据
+
+```{r echo=TRUE}
+data<-read.csv("C:/Users/lenovo/Desktop/zuo_homework/data.csv",1)
+```
+
+* 查看数据
+```{r}
+data
+```
+
+* 处理投入x,中间变量z，产出y的格式
+```{r}
+x<-data.frame(data$X1,data$X2) %>% as.matrix()  
+z<-data.frame(data$Z1,data$Z2) %>% as.matrix()
+y<-data.frame(data$Y1,data$Y2) %>% as.matrix()
+```
+
+#1首先计算整体效率
+
+* 变量维度设置
+```{r}
+n <- nrow(data)         #24个DMU
+#inputs<-x              #2个投入   m
+m <- ncol(x)
+#intermediate<-z        #2个中间变量  q
+q<-ncol(z)
+#outputs<-y             #2个产出
+s <- ncol(y)
+
+eff<-list(NULL)  #构建一个空值的list
+length(eff)<-24
+```
+
+* 整体效率的计算
+```{r}
+for(i in 1:n){
+  #目标函数
+  obj.f <- c(rep(0,m),rep(0,q), as.numeric(y[i,]))
+  #左边的限制条件
+  cons_lhs_1 <- c(as.numeric(x[i,]), rep(0,q),rep(0,s))
+  cons_lhs_2 <- cbind(-1*x, 0,0, y)
+  cons_lhs_3 <- cbind(-1*x, z,0,0)
+  cons_lhs_4 <- cbind(0,0, -1*z,y)
+  
+  cons.f <- rbind(cons_lhs_1, cons_lhs_2,cons_lhs_3,cons_lhs_4)
+  cons.dir <- c( "=",rep("<=",3*n))
+  #右边参数
+  rhs <- c(1,rep(0,3*n))
+  results <- lp("max", obj.f, cons.f, cons.dir, rhs, scale = 0)
+  eff [i]<- results$objval
+}
+```
+
+* 整体效率结果与保存
+```{r}
+eff[1:24]
+
+E<-as.vector(unlist(eff))
+write.csv(E,"c:/users/lenovo/desktop/zuo_homework/E.csv")
+```
+
+#2.本文先求E2的最大值
+
+*  构建一个空变量来收集E2
+```{r}
+eff2<-list(NULL)  #构建一个空值的list
+length(eff2)<-24
+```
+
+* 求E2是建立在E已经求出的基础之上进行计算的
+
+
+* 计算E2，线性规划方法
+```{r}
+for(i in 1:n){
+  #目标函数
+  obj.f <- c(rep(0,m),rep(0,q), as.numeric(y[i,]))
+  #左边的限制条件
+  cons_lhs_1 <- c(rep(0,m),as.numeric(z[i,]),rep(0,s)) %>%as.matrix() %>%t()
+  cons_lhs_2 <- cbind((-E[i]*x[i,1]),(-E[i]*x[i,2]), 0,0,y[i,1],y[i,2] )
+  cons_lhs_3 <- cbind(-1*x, 0,0, y)
+  cons_lhs_4 <- cbind(-1*x, z,0,0)
+  cons_lhs_5 <- cbind(0,0, -1*z,y)
+  
+  cons.f <- rbind(cons_lhs_1, cons_lhs_2,cons_lhs_3,cons_lhs_4,cons_lhs_5)
+  cons.dir <- c( "=","=",rep("<=",3*n))
+  #右边参数
+  rhs <- c(1,0,rep(0,3*n))
+  results <- lp("max", obj.f, cons.f, cons.dir, rhs, scale = 0)
+  eff2[i]<- results$objval
+}
+```
+
+* 第二阶段结果与保存
+```{r}
+eff2[1:24]
+
+E2<-as.vector(unlist(eff2))
+write.csv(E2,"c:/users/lenovo/desktop/zuo_homework/E2.csv")
+```
+
+#3.最后求第一阶段结果
+```{r}
+E1<-E/E2
+E1
+```
+
+#最后结果与文章相符合
+```{r}
+e<-data.frame(E,E1,E2)
+e
+```
+
+*论文原结果 第九页
+
+![Raw Result in Paper](c:/users/lenovo/desktop/zuo_homework/paperP9.png)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
